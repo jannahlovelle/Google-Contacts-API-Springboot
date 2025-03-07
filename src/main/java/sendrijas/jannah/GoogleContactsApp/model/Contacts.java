@@ -1,14 +1,16 @@
 package sendrijas.jannah.GoogleContactsApp.model;
 
+import java.util.List;
+
 public class Contacts {
     private String resourceName;
     private String name;
-    private String email;
-    private String phoneNumber;
+    private List<String> email;
+    private List<String> phoneNumber;
     
     public Contacts() {
     }
-    public Contacts(String name, String email) {
+    public Contacts(String name, List<String> email) {
         this.name = name;
         this.email = email;
     }
@@ -29,19 +31,19 @@ public class Contacts {
         this.name = name;
     }
     
-    public String getEmail() {
+    public List<String> getEmail() {
         return email;
     }
     
-    public void setEmail(String email) {
+    public void setEmail(List<String> email) {
         this.email = email;
     }
     
-    public String getPhoneNumber() {
+    public List<String> getPhoneNumber() {
         return phoneNumber;
     }
     
-    public void setPhoneNumber(String phoneNumber) {
+    public void setPhoneNumber(List<String> phoneNumber) {
         this.phoneNumber = phoneNumber;
     }
 }

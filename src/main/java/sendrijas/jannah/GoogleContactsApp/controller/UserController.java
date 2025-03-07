@@ -1,4 +1,5 @@
 package sendrijas.jannah.GoogleContactsApp.controller;
+import sendrijas.jannah.GoogleContactsApp.model.Contacts;
 import sendrijas.jannah.GoogleContactsApp.service.GoogleContactsService;
 import com.google.api.services.people.v1.model.EmailAddress;
 import com.google.api.services.people.v1.model.Name;
@@ -26,6 +27,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 @Controller
 public class UserController {
@@ -69,6 +71,17 @@ public class UserController {
             return "redirect:/"; // Redirect if not authenticated
         }
 
+        // Fetch contacts and calculate totals
+        List<Contacts> contacts = googleContactsService.getContacts((OAuth2User) principal);
+        int totalContacts = contacts.size();
+        int totalEmails = contacts.stream().mapToInt(contact -> contact.getEmail().size()).sum();
+        int totalPhoneNumbers = contacts.stream().mapToInt(contact -> contact.getPhoneNumber().size()).sum();
+
+        // Add totals to model
+        model.addAttribute("totalContacts", totalContacts);
+        model.addAttribute("totalEmails", totalEmails);
+        model.addAttribute("totalPhoneNumbers", totalPhoneNumbers);
+
         return "user-info"; // Return the view name
     }
     
@@ -91,19 +104,41 @@ public class UserController {
     @PostMapping("/contact/add")
     public String addContact(
             @RequestParam("displayName") String name, 
-            @RequestParam String email,
-            @RequestParam(required = false) String phoneNumber,
+            @RequestParam List<String> email,
+            @RequestParam List<String> phoneNumber,
             @AuthenticationPrincipal OAuth2User principal,
-            Model model) {
+            Model model, RedirectAttributes redirectAttributes) {
         
         System.out.println("Adding contact: " + name + ", " + email + ", " + phoneNumber);
         
+        if (email == null || email.isEmpty()) {
+            model.addAttribute("error", "At least one email is required.");
+            return "addContact";
+        }
+
+        if (phoneNumber == null || phoneNumber.isEmpty()) {
+            model.addAttribute("error", "At least one phone number is required.");
+            return "addContact";
+        }
+
         try {
+            // Ensure emails are unique
+            List<Contacts> existingContacts = googleContactsService.getContacts(principal);
+            for (Contacts contact : existingContacts) {
+                for (String existingEmail : contact.getEmail()) {
+                    if (email.contains(existingEmail)) {
+                        model.addAttribute("error", "Email " + "existingEmail already exists in another contact.");
+                        return "addContact";
+                    }
+                }
+            }
+
             googleContactsService.addContact(principal, name, email, phoneNumber);
+            redirectAttributes.addFlashAttribute("success", "Contact added successfully.");
             return "redirect:/contacts";
         } catch (Exception e) {
-            model.addAttribute("error", "Failed to add contact: " + e.getMessage());
-            return "addContact";
+            redirectAttributes.addFlashAttribute("error", "Failed to add contact: " + e.getMessage());
+            return "redirect:/contact/add-form";
         }
     }
     
@@ -139,12 +174,35 @@ public class UserController {
     public String updateContact(
             @PathVariable String contactId,
             @RequestParam String displayName,
-            @RequestParam String email,
-            @RequestParam String phoneNumber,
+            @RequestParam List<String> email,
+            @RequestParam List<String> phoneNumber,
             @AuthenticationPrincipal OAuth2User principal,
-            Model model) {
+            Model model, RedirectAttributes redirectAttributes) {
+
+        if (email == null || email.isEmpty()) {
+            model.addAttribute("error", "At least one email is required.");
+            return "editContact";
+        }
+
+        if (phoneNumber == null || phoneNumber.isEmpty()) {
+            model.addAttribute("error", "At least one phone number is required.");
+            return "editContact";
+        }
 
         try {
+            // Ensure emails are unique
+            List<Contacts> existingContacts = googleContactsService.getContacts(principal);
+            for (Contacts contact : existingContacts) {
+                if (!contact.getResourceName().equals("people/" + contactId)) {
+                    for (String existingEmail : contact.getEmail()) {
+                        if (email.contains(existingEmail)) {
+                            model.addAttribute("error", "Email " + "existingEmail already exists in another contact.");
+                            return "editContact";
+                        }
+                    }
+                }
+            }
+
             // Fetch the contact to get the current etag
             Person existingContact = googleContactsService.getPersonById(principal, "people/" + contactId);
             if (existingContact == null) {
@@ -163,20 +221,28 @@ public class UserController {
                 updatePerson.setNames(Arrays.asList(personName));
             }
 
-            // Update email if provided
+            // Update emails if provided
             if (email != null && !email.isEmpty()) {
-                EmailAddress emailAddress = new EmailAddress();
-                emailAddress.setValue(email);
-                emailAddress.setType("home");
-                updatePerson.setEmailAddresses(Arrays.asList(emailAddress));
+                List<EmailAddress> emailAddresses = new ArrayList<>();
+                for (String emailAddr : email) {
+                    EmailAddress emailAddress = new EmailAddress();
+                    emailAddress.setValue(emailAddr);
+                    emailAddress.setType("home");
+                    emailAddresses.add(emailAddress);
+                }
+                updatePerson.setEmailAddresses(emailAddresses);
             }
 
-            // Update phone if provided
+            // Update phones if provided
             if (phoneNumber != null && !phoneNumber.isEmpty()) {
-                PhoneNumber personPhone = new PhoneNumber();
-                personPhone.setValue(phoneNumber);
-                personPhone.setType("mobile");
-                updatePerson.setPhoneNumbers(Arrays.asList(personPhone));
+                List<PhoneNumber> phoneNumbers = new ArrayList<>();
+                for (String phone : phoneNumber) {
+                    PhoneNumber personPhone = new PhoneNumber();
+                    personPhone.setValue(phone);
+                    personPhone.setType("mobile");
+                    phoneNumbers.add(personPhone);
+                }
+                updatePerson.setPhoneNumbers(phoneNumbers);
             }
 
             // Determine which fields to update
@@ -192,12 +258,12 @@ public class UserController {
 
             // Perform the update
             googleContactsService.updateContact(principal, "people/" + contactId, updatePerson, updatePersonFields);
-
+            redirectAttributes.addFlashAttribute("success", "Contact updated successfully.");
             return "redirect:/contacts"; // Redirect to contacts list after successful update
 
         } catch (RuntimeException e) {
-            model.addAttribute("error", "Failed to update contact: " + e.getMessage());
-            return "editContact"; // Return to the edit page with an error message
+            redirectAttributes.addFlashAttribute("error", "Failed to update contact: " + e.getMessage());
+            return "redirect:/contacts/edit/people/" + contactId;
         }
     }
 
@@ -222,22 +288,25 @@ public class UserController {
     @GetMapping("/contacts/delete/people/{contactId}")
     public String deleteContact(
             @PathVariable String contactId,
-            @AuthenticationPrincipal OAuth2User principal) {
+            @AuthenticationPrincipal OAuth2User principal,
+            RedirectAttributes redirectAttributes) {
         try {
             googleContactsService.deleteContact(principal, "people/" + contactId);
+            redirectAttributes.addFlashAttribute("success", "Contact deleted successfully.");
         } catch (Exception e) {
-            System.err.println("Error deleting contact: " + e.getMessage());
+            redirectAttributes.addFlashAttribute("error", "Failed to delete contact: " + e.getMessage());
         }
         return "redirect:/contacts";
     }
+
     @GetMapping("/login")
     public String login() {
         return "login"; // Return the login view
     }
 
     @GetMapping("/logout")
-        public String logout(HttpServletRequest request, HttpServletResponse response) throws ServletException {
-            request.logout();  // Invalidate the session
-            return "redirect:/login";  // Redirect to the login page
-        }
+    public String logout(HttpServletRequest request, HttpServletResponse response) throws ServletException {
+        request.logout();  // Invalidate the session
+        return "redirect:/login";  // Redirect to the login page
+    }
 }

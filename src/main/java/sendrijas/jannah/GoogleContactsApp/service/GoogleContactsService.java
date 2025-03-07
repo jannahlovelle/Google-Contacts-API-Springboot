@@ -80,8 +80,8 @@ public class GoogleContactsService {
                 Contacts contact = new Contacts();
                 contact.setResourceName(person.getResourceName());
                 contact.setName(getPersonName(person));
-                contact.setEmail(getPersonEmail(person));
-                contact.setPhoneNumber(getPersonPhoneNumber(person));
+                contact.setEmail(getPersonEmails(person)); // Fix to get multiple emails
+                contact.setPhoneNumber(getPersonPhoneNumbers(person)); // Fix to get multiple phone numbers
                 contactsList.add(contact);
             }
         } catch (IOException e) {
@@ -113,7 +113,7 @@ public class GoogleContactsService {
         return response.getConnections() != null ? response.getConnections() : new ArrayList<>();
     }
     
-    public void addContact(OAuth2User principal, String name, String email, String phoneNumber) {
+    public void addContact(OAuth2User principal, String name, List<String> email, List<String> phoneNumber) {
         try {
             PeopleService peopleService = getPeopleService(principal);
 
@@ -126,20 +126,28 @@ public class GoogleContactsService {
             personName.setGivenName(name);
             newPerson.setNames(Arrays.asList(personName));
 
-            // Add email if provided
+            // Add emails if provided
             if (email != null && !email.isEmpty()) {
-                EmailAddress emailAddress = new EmailAddress();
-                emailAddress.setValue(email);
-                emailAddress.setType("home");
-                newPerson.setEmailAddresses(Arrays.asList(emailAddress));
+                List<EmailAddress> emailAddresses = new ArrayList<>();
+                for (String emailAddr : email) {
+                    EmailAddress emailAddress = new EmailAddress();
+                    emailAddress.setValue(emailAddr);
+                    emailAddress.setType("home");
+                    emailAddresses.add(emailAddress);
+                }
+                newPerson.setEmailAddresses(emailAddresses);
             }
 
-            // Add phone if provided
+            // Add phones if provided
             if (phoneNumber != null && !phoneNumber.isEmpty()) {
-                PhoneNumber personPhone = new PhoneNumber();
-                personPhone.setValue(phoneNumber);
-                personPhone.setType("mobile");
-                newPerson.setPhoneNumbers(Arrays.asList(personPhone));
+                List<PhoneNumber> phoneNumbers = new ArrayList<>();
+                for (String phone : phoneNumber) {
+                    PhoneNumber personPhone = new PhoneNumber();
+                    personPhone.setValue(phone);
+                    personPhone.setType("mobile");
+                    phoneNumbers.add(personPhone);
+                }
+                newPerson.setPhoneNumbers(phoneNumbers);
             }
 
             // Create the contact
@@ -193,8 +201,8 @@ public class GoogleContactsService {
             Contacts contact = new Contacts();
             contact.setResourceName(resourceName);
             contact.setName(getPersonName(person));
-            contact.setEmail(getPersonEmail(person));
-            contact.setPhoneNumber(getPersonPhoneNumber(person));
+            contact.setEmail(getPersonEmails(person));
+            contact.setPhoneNumber(getPersonPhoneNumbers(person));
             
             return contact;
         } catch (Exception e) {
@@ -210,19 +218,25 @@ public class GoogleContactsService {
         return "";
     }
     
-    private String getPersonEmail(Person person) {
+    private List<String> getPersonEmails(Person person) {
         List<EmailAddress> emailAddresses = person.getEmailAddresses();
-        if (emailAddresses != null && !emailAddresses.isEmpty()) {
-            return emailAddresses.get(0).getValue();
+        List<String> emails = new ArrayList<>();
+        if (emailAddresses != null) {
+            for (EmailAddress emailAddress : emailAddresses) {
+                emails.add(emailAddress.getValue());
+            }
         }
-        return "";
+        return emails;
     }
     
-    private String getPersonPhoneNumber(Person person) {
+    private List<String> getPersonPhoneNumbers(Person person) {
         List<PhoneNumber> phoneNumbers = person.getPhoneNumbers();
-        if (phoneNumbers != null && !phoneNumbers.isEmpty()) {
-            return phoneNumbers.get(0).getValue();
+        List<String> phones = new ArrayList<>();
+        if (phoneNumbers != null) {
+            for (PhoneNumber phoneNumber : phoneNumbers) {
+                phones.add(phoneNumber.getValue());
+            }
         }
-        return "";
+        return phones;
     }
 }
